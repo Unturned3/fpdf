@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+
+import fitz
+import re, sys, os
+
+path = sys.argv[1]
+assert(os.path.isfile(path))
+
+pdf = fitz.open(path)
+
+ref_sec_start = 'references' if len(sys.argv) < 3 else sys.argv[2]
+highlight = False
+
+full = r'^\[[0-9]+(,[0-9]+)*\]'
+start = r'^\[([0-9]+,)+$'
+mid = r'^([0-9]+,)+$'
+end = r'^[0-9]+(,[0-9]+)*\]'
+
+
+in_ref = False
+in_ref_list = False
+
+ref_dsts = []
+ref_links = []
+max_ref_num = 0
+rm_cnt = 0
+
+for pg, page in enumerate(pdf.pages()):
+
+    tdict = page.get_text('words')
+
+    annot = page.first_annot
+    while annot:
+        if annot.type[1] == 'Square':
+            rm_cnt += 1
+            annot = page.delete_annot(annot)
+
+    for t in tdict:
+        x0, y0, x1, y1, w, *_  = t
+
+        if w.lower() == ref_sec_start:
+            in_ref_list = True
+            continue
+        
+        if in_ref_list:
+            if re.compile(full).match(w):
+                try:
+                    if int(w[1:-1]) != len(ref_dsts) + 1:
+                        in_ref_list = False
+                    else:
+                        ref_dsts.append({'page': pg, 'to': fitz.Point(x0, y0)})
+                        continue
+                except ValueError as e:
+                    print('w:' ,w)
+                    print(f'Error: {e}')
+
+        m = None
+
+        if in_ref:
+            m = re.search(mid, w)
+            if not m:
+                m = re.search(end, w)
+                if m:
+                    in_ref = False
+        else:
+            m = re.search(full, w)
+            if not m:
+                m = re.search(start, w)
+                if m:
+                    in_ref = True
+
+        if m:
+            ref_links.append({'page': pg, 'from': fitz.Rect(x0, y0, x1, y1), 'm': m.group()})
+
+max_ref_num = len(ref_dsts)
+
+if max_ref_num == 0:
+    print('Error: no references list found.')
+    sys.exit(1)
+
+print(f'Removed {rm_cnt} existing rectangle annotation(s).')
+print(f'Detected {max_ref_num} unique references.')
+
+for l in ref_links:
+    page = pdf[l['page']]
+    rs = l['m'].replace('[', '').replace(']', '').split(',')
+    t = len(''.join(rs))
+    x0, y0, x1, y1 = l['from']
+    w = x1 - x0
+    for r in rs:
+        if r == '' or not 1 <= int(r) <= max_ref_num:
+            continue
+        dst = ref_dsts[int(r)-1]
+        dx = w * len(r) / t
+
+        if highlight:
+            h = page.add_highlight_annot([x0, y0, x0 + dx, y1])
+            h.set_colors({'stroke': (0.08,0,0.08,0), 'fill': None})
+            h.update()
+
+        page.insert_link({
+            'kind': fitz.LINK_GOTO,
+            'from': fitz.Rect(x0, y0, x0 + dx, y1), 
+            'page': dst['page'],
+            'to': dst['to'],
+        })
+
+        x0 += dx
+
+os.rename(path, path + '.old')
+pdf.save(path + '.new')
+pdf.close()
+os.rename(path + '.new', path)
