@@ -43,9 +43,10 @@ for pg, page in enumerate(pdf.pages()):
             continue
         
         if in_ref_list:
-            if re.compile(full).match(w):
+            m = re.search(full, w)
+            if m:
                 try:
-                    if int(w[1:-1]) != len(ref_dsts) + 1:
+                    if int(m.group()[1:-1]) != len(ref_dsts) + 1:
                         in_ref_list = False
                     else:
                         ref_dsts.append({'page': pg, 'to': fitz.Point(x0, y0)})
