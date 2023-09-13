@@ -4,20 +4,19 @@ import fitz
 import re, sys, os
 import pats, utils
 
-path = sys.argv[1]
-assert(os.path.isfile(path))
+args = utils.parse_args()
 
-pdf = fitz.open(path)
-pdf_text, char_info = utils.parse(pdf)
+assert(os.path.isfile(args.file))
 
-#with open('out.txt', 'wb') as f:
-#    f.write(pdf_text.encode('utf-8', errors='ignore'))
+pdf = fitz.open(args.file)
+pdf_text, char_info = utils.parse_pdf(pdf)
 
-if len(sys.argv) > 2:
-    pat = pats.patterns[sys.argv[2]]
-else:
-    print('Defaulting to IEEE ref style')
-    pat = pats.patterns['ieee']
+if args.print_parsed:
+    with open(args.output if args.output else 'out.txt', 'wb') as f:
+        f.write(pdf_text.encode('utf-8', errors='ignore'))
+    quit(0)
+
+pat = pats.patterns[args.ref_style]
 
 # Find reference list starting point
 m_ref_list = list(re.finditer(pats.start_of_ref_list, pdf_text, re.M))
@@ -35,7 +34,7 @@ for m_dst in re.finditer(pat['dst'], pdf_text[m_ref_list.end():], re.M | re.S):
         dst[key] = (pg, x0, y0)
         #pdf[pg].add_highlight_annot([x0, y0, x1, y1])
 
-if pat['alt-ref']:
+if 'alt-ref' in pat.keys():
     for m in re.finditer(pat['alt-ref'], pdf_text, re.M | re.S):
         start, end = m.span()
 
@@ -48,15 +47,16 @@ if pat['alt-ref']:
             else:
                 segments.append(list(char_info[i][0:5]))
                 prev_y0 = y0
-            
+
         d_pg, d_x, d_y = dst.get(m.groups(), [None]*3)
 
         for s in segments:
             page = pdf[s[0]]
-            h = page.add_highlight_annot(s[1:5])
-            if not d_pg:
-                h.set_colors({'stroke': (1,0,0), 'fill': None})
-                h.update()
+            if args.highlight:
+                h = page.add_highlight_annot(s[1:5])
+                if not d_pg:
+                    h.set_colors({'stroke': (1,0,0), 'fill': None})
+                    h.update()
             if d_pg:
                 page.insert_link({
                     'kind': fitz.LINK_GOTO,
@@ -85,10 +85,11 @@ for m_refs in re.finditer(pat['refs'], pdf_text, re.M | re.S):
 
         for s in segments:
             page = pdf[s[0]]
-            h = page.add_highlight_annot(s[1:5])
-            if not d_pg:
-                h.set_colors({'stroke': (1,0,0), 'fill': None})
-                h.update()
+            if args.highlight:
+                h = page.add_highlight_annot(s[1:5])
+                if not d_pg:
+                    h.set_colors({'stroke': (1,0,0), 'fill': None})
+                    h.update()
             if d_pg:
                 page.insert_link({
                     'kind': fitz.LINK_GOTO,
@@ -97,7 +98,11 @@ for m_refs in re.finditer(pat['refs'], pdf_text, re.M | re.S):
                     'to': fitz.Point(d_x, d_y),
                 })
 
-os.rename(path, path + '.old')
-pdf.save(path + '.new')
-pdf.close()
-os.rename(path + '.new', path)
+if args.output:
+    pdf.save(args.output)
+    pdf.close()
+else:
+    os.rename(args.file, args.file + '.old')
+    pdf.save(args.file + '.new')
+    pdf.close()
+    os.rename(args.file + '.new', args.file)

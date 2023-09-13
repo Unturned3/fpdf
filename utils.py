@@ -1,9 +1,11 @@
 
 import fitz
+import pats
+import argparse
 from unidecode import unidecode
 
-import warnings
-warnings.filterwarnings('ignore', module='unidecode')
+#import warnings
+#warnings.filterwarnings('ignore', module='unidecode')
 
 
 def fmt(s: str, **kwargs):
@@ -16,7 +18,7 @@ def fmt(s: str, **kwargs):
 # a mapping from character position to page number, 
 # bounding box, and its containing fitz span.
 
-def parse(pdf: fitz.Document) -> (str, dict):
+def parse_pdf(pdf: fitz.Document) -> (str, dict):
 
     s, d, idx = [], {}, 0
 
@@ -33,7 +35,9 @@ def parse(pdf: fitz.Document) -> (str, dict):
                 for span in line['spans']:
                     for char in span['chars']:
                         d[idx] = (page.number, *char['bbox'], span)
-                        c = unidecode(char['c'])
+                        c = unidecode(char['c'], errors='replace', replace_str='?')
+                        if not str.isascii(c):
+                            c = '?'
                         s.append(c)
                         idx += len(c)
 
@@ -58,3 +62,28 @@ def parse(pdf: fitz.Document) -> (str, dict):
                     idx += 1
 
     return ''.join(s), d
+
+
+class HelpFormatter(argparse.HelpFormatter):
+    def _format_action_invocation(self, action: argparse.Action) -> str:
+        f = super()._format_action_invocation(action)
+        if action.option_strings and action.nargs != 0:
+            metavar = self._format_args(action, self._get_default_metavar_for_optional(action))
+            f = f.replace(' ' + metavar, '',)
+        return f
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(formatter_class=HelpFormatter)
+    parser.add_argument('-p', '--print-parsed', action='store_true',
+                        help='print parsed pdf text to file')
+    parser.add_argument('-l', '--highlight', action='store_true',
+                        help='')
+    parser.add_argument('-s', '--ref-style', metavar='style',
+                        choices=list(pats.patterns.keys()), default='ieee',
+                        help='')
+    parser.add_argument('-o', '--output', metavar='name', default=None,
+                        help='output file path')
+    parser.add_argument('file')
+    args = parser.parse_args()
+    return args
