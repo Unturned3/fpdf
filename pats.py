@@ -29,7 +29,8 @@ start_of_ref_list = r'^(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY) ?$'
 # is to avoid confusion on how many capturing groups are in
 # a top-level pattern.
 valid_year = r'(?:19[5-9]\d|20[0-4]\d|2050)[a-z]?'
-lastname = r'(?:[a-zA-Z]{2,}(?:-[a-zA-Z]{2,})*)'
+#lastname = r'(?:[a-zA-Z]{2,}(?:-[a-zA-Z]{2,})*)'
+lastname = r'(?:[\w]{2,}(?:-[\w]{2,})*)'
 
 
 # A note on capture groups
@@ -64,7 +65,6 @@ lastname = r'(?:[a-zA-Z]{2,}(?:-[a-zA-Z]{2,})*)'
 ieee_ref = '([1-9][0-9]*)'
 ieee = {
     'ref': ieee_ref,
-    'alt-ref': None,
     'refs': fmt(r'\[{r}((,|-)\s*{r})*\]', r=ieee_ref),
     'dst': fmt(r'^\[{r}\] ', r=ieee_ref),
 }
@@ -82,21 +82,12 @@ ieee = {
 #      apa-std-1.pdf)
 #
 apa_ref = fmt(r'({l})(?:|\set\sal\.|\sand\s({l}))'
-              r',\s({y})', l=lastname, y=valid_year)
+              r',\s({y})(?:,\s{y})*', l=lastname, y=valid_year)
 apa = {
     'ref': apa_ref,
-
     'alt-ref': fmt(r'({l})(?:|\set\sal\.|\sand\s({l}))'
                    r'\s\(({y})\)', l=lastname, y=valid_year),
-
-    # Any number of semicolon-separated refs,
-    # enclosed in parentheses or square brackets
     'refs': fmt(r'\((e\.g\.,\s)?{r}(;\s*{r})*\)', r=apa_ref),
-
-    # Start of the line, any spaces, one capitalized word (author name),
-    # comma, any number of characters (including newline), period, any spaces,
-    # open parentheses, valid year, close parentheses, period.
-    # Capture groups: author name and year.
     'dst': fmt(r'^({l}),(?:(?:\s|-)[A-Z]\.)+'
                r'(?:|,\s.*?\.|\sand\s({l}),(?:(?:\s|-)[A-Z]\.)+)'
                r'\s\(({y})\)\.\s', l=lastname, y=valid_year),

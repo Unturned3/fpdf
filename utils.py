@@ -35,9 +35,10 @@ def parse_pdf(pdf: fitz.Document) -> (str, dict):
                 for span in line['spans']:
                     for char in span['chars']:
                         d[idx] = (page.number, *char['bbox'], span)
-                        c = unidecode(char['c'], errors='replace', replace_str='?')
-                        if not str.isascii(c):
-                            c = '?'
+                        c = char['c']
+                        #c = unidecode(char['c'], errors='replace', replace_str='?')
+                        #if not str.isascii(c):
+                        #    c = '?'
                         s.append(c)
                         idx += len(c)
 
@@ -46,7 +47,7 @@ def parse_pdf(pdf: fitz.Document) -> (str, dict):
 
                 # Separate each line by '\n'.
                 # Remove line-breaking hyphens if needed.
-                if prev_char['c'] == '-':
+                if unidecode(prev_char['c']) == '-':
                     space_found = False
                     for i in range(-1, -100, -1):
                         if str.isspace(s[i]):

@@ -4,105 +4,93 @@ import fitz
 import re, sys, os
 import pats, utils
 
-args = utils.parse_args()
+def parse_ref_list(start_pat: str, dst_pat: str, pdf_text: str, char_info: dict):
 
-assert(os.path.isfile(args.file))
+    # Find reference list starting point
+    m_ref_list = list(re.finditer(start_pat, pdf_text, re.M))
+    assert(len(m_ref_list) == 1)
+    m_ref_list = m_ref_list[0]
 
-pdf = fitz.open(args.file)
-pdf_text, char_info = utils.parse_pdf(pdf)
+    # Find all reference destinations
+    dst = {}
+    for m_dst in re.finditer(dst_pat, pdf_text[m_ref_list.end():], re.M | re.S | re.U):
+        pg, x0, y0, *_ = char_info[m_dst.start() + m_ref_list.end()]
+        key = m_dst.groups()
+        if key in dst.keys():
+            print(f'Warning: duplicate reference key {key}')
+        else:
+            dst[key] = (pg, x0, y0)
+            #pdf[pg].add_highlight_annot([x0, y0, x1, y1])
+    return dst
 
-if args.print_parsed:
-    with open(args.output if args.output else 'out.txt', 'wb') as f:
-        f.write(pdf_text.encode('utf-8', errors='ignore'))
-    quit(0)
 
-pat = pats.patterns[args.ref_style]
+def link_ref(m: re.Match, dsts: dict, pdf: fitz.Document, char_info: dict,
+             offset: int = 0, highlight: bool = False):
 
-# Find reference list starting point
-m_ref_list = list(re.finditer(pats.start_of_ref_list, pdf_text, re.M))
-assert(len(m_ref_list) == 1)
-m_ref_list = m_ref_list[0]
+    start, end = m.span()
+    start, end = start + offset, end + offset
 
-# Find all reference destinations
-dst = {}
-for m_dst in re.finditer(pat['dst'], pdf_text[m_ref_list.end():], re.M | re.S):
-    pg, x0, y0, x1, y1, *_ = char_info[m_dst.start() + m_ref_list.end()]
-    key = m_dst.groups()
-    if key in dst.keys():
-        print(f'Warning: duplicate reference key {key}')
+    prev_y0 = char_info[start][2]
+    segments = [list(char_info[start][0:5])]
+    for i in range(start, end):
+        _, _, y0, x1, _, s = char_info[i]
+        if y0 == prev_y0:
+            segments[-1][3] = x1
+        else:
+            segments.append(list(char_info[i][0:5]))
+            prev_y0 = y0
+
+    d_pg, d_x, d_y = dsts.get(m.groups(), [None]*3)
+
+    for s in segments:
+        page = pdf[s[0]]
+        if highlight:
+            h = page.add_highlight_annot(s[1:5])
+            if not d_pg:
+                h.set_colors({'stroke': (1,0,0), 'fill': None})
+                h.update()
+        if d_pg:
+            page.insert_link({
+                'kind': fitz.LINK_GOTO,
+                'from': fitz.Rect(*s[1:5]), 
+                'page': d_pg,
+                'to': fitz.Point(d_x, d_y),
+            })
+
+def main():
+    args = utils.parse_args()
+
+    assert(os.path.isfile(args.file))
+
+    pdf = fitz.open(args.file)
+    pdf_text, char_info = utils.parse_pdf(pdf)
+
+    if args.print_parsed:
+        with open(args.output if args.output else 'out.txt', 'wb') as f:
+            f.write(pdf_text.encode('utf-8', errors='ignore'))
+        quit(0)
+
+    pat = pats.patterns[args.ref_style]
+
+    dsts = parse_ref_list(pats.start_of_ref_list, pat['dst'], pdf_text, char_info)
+    
+    if 'alt-ref' in pat.keys():
+        for m in re.finditer(pat['alt-ref'], pdf_text, re.M | re.S | re.U):
+            link_ref(m, dsts, pdf, char_info, highlight=args.highlight)
+
+    for m_refs in re.finditer(pat['refs'], pdf_text, re.M | re.S | re.U):
+        for m in re.finditer(pat['ref'], m_refs.group(), re.S | re.U):
+            link_ref(m, dsts, pdf, char_info, offset=m_refs.start(), highlight=args.highlight)
+
+    if args.output:
+        pdf.save(args.output)
+        pdf.close()
     else:
-        dst[key] = (pg, x0, y0)
-        #pdf[pg].add_highlight_annot([x0, y0, x1, y1])
+        os.rename(args.file, args.file + '.old')
+        pdf.save(args.file + '.new')
+        pdf.close()
+        os.rename(args.file + '.new', args.file)
 
-if 'alt-ref' in pat.keys():
-    for m in re.finditer(pat['alt-ref'], pdf_text, re.M | re.S):
-        start, end = m.span()
 
-        prev_y0 = char_info[start][2]
-        segments = [list(char_info[start][0:5])]
-        for i in range(start, end):
-            pg, x0, y0, x1, y1, s = char_info[i]
-            if y0 == prev_y0:
-                segments[-1][3] = x1
-            else:
-                segments.append(list(char_info[i][0:5]))
-                prev_y0 = y0
-
-        d_pg, d_x, d_y = dst.get(m.groups(), [None]*3)
-
-        for s in segments:
-            page = pdf[s[0]]
-            if args.highlight:
-                h = page.add_highlight_annot(s[1:5])
-                if not d_pg:
-                    h.set_colors({'stroke': (1,0,0), 'fill': None})
-                    h.update()
-            if d_pg:
-                page.insert_link({
-                    'kind': fitz.LINK_GOTO,
-                    'from': fitz.Rect(*s[1:5]), 
-                    'page': d_pg,
-                    'to': fitz.Point(d_x, d_y),
-                })
-
-# Create links for references
-for m_refs in re.finditer(pat['refs'], pdf_text, re.M | re.S):
-    for m in re.finditer(pat['ref'], m_refs.group()):
-
-        start, end = m.span()[0] + m_refs.start(), m.span()[1] + m_refs.start()
-
-        prev_y0 = char_info[start][2]
-        segments = [list(char_info[start][0:5])]
-        for i in range(start, end):
-            pg, x0, y0, x1, y1, s = char_info[i]
-            if y0 == prev_y0:
-                segments[-1][3] = x1
-            else:
-                segments.append(list(char_info[i][0:5]))
-                prev_y0 = y0
-
-        d_pg, d_x, d_y = dst.get(m.groups(), [None]*3)
-
-        for s in segments:
-            page = pdf[s[0]]
-            if args.highlight:
-                h = page.add_highlight_annot(s[1:5])
-                if not d_pg:
-                    h.set_colors({'stroke': (1,0,0), 'fill': None})
-                    h.update()
-            if d_pg:
-                page.insert_link({
-                    'kind': fitz.LINK_GOTO,
-                    'from': fitz.Rect(*s[1:5]), 
-                    'page': d_pg,
-                    'to': fitz.Point(d_x, d_y),
-                })
-
-if args.output:
-    pdf.save(args.output)
-    pdf.close()
-else:
-    os.rename(args.file, args.file + '.old')
-    pdf.save(args.file + '.new')
-    pdf.close()
-    os.rename(args.file + '.new', args.file)
+if __name__ == '__main__':
+    main()
