@@ -80,7 +80,7 @@ for m_refs in re.finditer(pat['refs'], pdf_text, re.M | re.S):
             else:
                 segments.append(list(char_info[i][0:5]))
                 prev_y0 = y0
-            
+
         d_pg, d_x, d_y = dst.get(m.groups(), [None]*3)
 
         for s in segments:

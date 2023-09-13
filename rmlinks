@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+
+import fitz
+import sys, os, re
+from intervaltree import Interval, IntervalTree
+from pprint import pprint
+
+path = sys.argv[1]
+assert(os.path.isfile(path))
+
+pdf = fitz.open(path)
+
+print(f'Remove all links from {path} (y/n)? ', end='')
+c = input()
+
+if c != 'y':
+    exit(1)
+
+for page in pdf:
+    for l in page.get_links():
+        page.delete_link(l)
+
+os.rename(path, path + '.old')
+pdf.save(path + '.new')
+pdf.close()
+os.rename(path + '.new', path)
